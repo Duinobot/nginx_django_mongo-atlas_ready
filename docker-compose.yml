@@ -1,0 +1,92 @@
+version: "3"
+
+volumes:
+  redis_vol:
+  static_vol:
+  media_vol:
+
+networks:
+  nginx_network:
+    driver: bridge
+  redis_network:
+    driver: bridge
+
+services:
+  redis:
+    image: redis
+    command: redis-server /etc/redis/redis.conf
+    networks:
+      - redis_network
+    volumes:
+      - redis_vol:/data
+      - ./compose/redis/reids.conf:/etc/redis/redis.conf
+    ports:
+      - 6379:6379
+    restart: always
+
+  nginx:
+    image: jc21/nginx-proxy-manager
+    restart: always
+    networks:
+      - nginx_network
+    ports:
+      # Public HTTP Port:
+      - "80:80"
+      # Public HTTPS Port:
+      - "443:443"
+      # Admin Web Port:
+      - "81:81"
+      # Add any other Stream port you want to expose
+      # - '21:21' # FTP
+    environment:
+      # These are the settings to access your db
+      DB_MYSQL_HOST: "nginx-db"
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: "npm"
+      DB_MYSQL_PASSWORD: "npm"
+      DB_MYSQL_NAME: "npm"
+      # If you would rather use Sqlite uncomment this
+      # and remove all DB_MYSQL_* lines above
+      # DB_SQLITE_FILE: "/data/database.sqlite"
+      # Uncomment this if IPv6 is not enabled on your host
+      # DISABLE_IPV6: 'true'
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+      - ./compose/nginx/log:/var/log/nginx
+      - ./compose/nginx/proxy_server.conf:/data/nginx/custom/server_proxy.conf
+      - static_vol:/usr/share/nginx/html/static
+      - media_vol:/usr/share/nginx/html/media
+    depends_on:
+      - nginx-db
+
+  nginx-db:
+    image: "jc21/mariadb-aria:latest"
+    restart: always
+    networks:
+      - nginx_network
+    environment:
+      MYSQL_ROOT_PASSWORD: "npm"
+      MYSQL_DATABASE: "npm"
+      MYSQL_USER: "npm"
+      MYSQL_PASSWORD: "npm"
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+
+  django:
+    build: ./icompose
+    ports:
+      - 8000:8000
+    volumes:
+      - ./icompose:/var/www/html/icompose
+      - static_vol:/var/www/html/icompose/static
+      - media_vol:/var/www/html/icompose/media
+      - ./compose/uwsgi:/tmp
+    networks:
+      - nginx_network
+      - redis_network
+    depends_on:
+      - redis
+    restart: always
+    tty: true
+    stdin_open: true
